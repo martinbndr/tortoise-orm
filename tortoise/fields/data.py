@@ -362,7 +362,7 @@ class DatetimeField(Field[datetime.datetime], datetime.datetime):
                 value = parse_datetime(value)
             #if timezone.is_naive(value):
                 #value = timezone.make_aware(value, get_timezone())
-            else:
+            #else:
             value = localtime(value)
         self.validate(value)
         return value
