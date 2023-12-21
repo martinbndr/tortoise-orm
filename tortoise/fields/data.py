@@ -451,8 +451,8 @@ class TimeField(Field[datetime.time], datetime.time):
                 value = datetime.time.fromisoformat(value)
             if isinstance(value, datetime.timedelta):
                 return value
-            if timezone.is_naive(value):
-                value = value.replace(tzinfo=get_default_timezone())
+            #if timezone.is_naive(value):
+                #value = value.replace(tzinfo=get_default_timezone())
         self.validate(value)
         return value
 
