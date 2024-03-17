@@ -9,6 +9,20 @@ Changelog
 0.20
 ====
 
+0.20.1
+------
+Added
+^^^^^
+- Add binary compression support for `UUIDField` in `MySQL`. (#1458)
+- Only `Model`, `Tortoise`, `BaseDBAsyncClient`, `__version__`, and `connections` are now exported from `tortoise`
+- Add parameter `validators` to `pydantic_model_creator`. (#1471)
+
+Fixed
+^^^^^
+- Fix order of fields in `ValuesListQuery` when it has more than 10 fields. (#1492)
+- Fix pydantic v2 pydantic_model_creator nullable field not optional. (#1454)
+- Fix pydantic v2.5 unittest error. (#1535)
+
 0.20.0
 ------
 Added

@@ -253,7 +253,7 @@ class AwaitableQuery(Generic[MODEL]):
         """Return the actual SQL."""
         return self.as_query().get_sql(**kwargs)
 
-    def as_query(self) -> QUERY:
+    def as_query(self) -> QueryBuilder:
         """Return the actual query."""
         if self._db is None:
             self._db = self._choose_db()  # type: ignore
@@ -1507,7 +1507,7 @@ class ValuesListQuery(FieldSelectQuery, Generic[SINGLE]):
         _, result = await self._db.execute_query(str(self.query))
         columns = [
             (key, self.resolve_to_python_value(self.model, name))
-            for key, name in sorted(self.fields.items())
+            for key, name in self.fields.items()
         ]
         if self.flat:
             func = columns[0][1]
@@ -1700,7 +1700,7 @@ class BulkUpdateQuery(UpdateQuery, Generic[MODEL]):
         self.objects = objects
         self.fields = fields
         self.batch_size = batch_size
-        self.queries: List[QUERY] = []
+        self.queries: List[QueryBuilder] = []
 
     def _make_query(self) -> None:
         table = self.model._meta.basetable

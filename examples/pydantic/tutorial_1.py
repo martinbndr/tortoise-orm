@@ -5,7 +5,7 @@ Here we introduce:
 * Creating a Pydantic model from a Tortoise model
 * Docstrings & doc-comments are used
 * Evaluating the generated schema
-* Simple serialisation with both .dict() and .json()
+* Simple serialisation with both .model_dump() and .model_dump_json()
 """
 from tortoise import Tortoise, fields, run_async
 from tortoise.contrib.pydantic import pydantic_model_creator
@@ -38,9 +38,9 @@ async def run():
     tourpy = await Tournament_Pydantic.from_tortoise_orm(tournament)
 
     # As Python dict with Python objects (e.g. datetime)
-    print(tourpy.dict())
+    print(tourpy.model_dump())
     # As serialised JSON (e.g. datetime is ISO8601 string representation)
-    print(tourpy.json(indent=4))
+    print(tourpy.model_dump_json(indent=4))
 
 
 if __name__ == "__main__":

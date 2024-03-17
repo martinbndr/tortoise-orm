@@ -8,7 +8,7 @@ from pydantic._internal._decorators import PydanticDescriptorProxy
 
 from tortoise.contrib.pydantic.base import PydanticListModel, PydanticModel
 from tortoise.contrib.pydantic.utils import get_annotations
-from tortoise.fields import JSONField, relational
+from tortoise.fields import IntField, JSONField, TextField, relational
 
 if TYPE_CHECKING:  # pragma: nocoverage
     from tortoise.models import Model
@@ -131,6 +131,8 @@ def pydantic_model_creator(
     exclude_readonly: bool = False,
     meta_override: Optional[Type] = None,
     model_config: Optional[ConfigDict] = None,
+    validators: Optional[Dict[str, Any]] = None,
+    module: str = __name__,
 ) -> Type[PydanticModel]:
     """
     Function to build `Pydantic Model <https://pydantic-docs.helpmanual.io/usage/models/>`__ off Tortoise Model.
@@ -156,6 +158,8 @@ def pydantic_model_creator(
     :param exclude_readonly: Build a subset model that excludes any readonly fields
     :param meta_override: A PydanticMeta class to override model's values.
     :param model_config: A custom config to use as pydantic config.
+    :param validators: A dictionary of methods that validate fields.
+    :param module: The name of the module that the model belongs to.
 
         Note: Created pydantic model uses config_class parameter and PydanticMeta's
             config_class as its Config class's bases(Only if provided!), but it
@@ -348,11 +352,13 @@ def pydantic_model_creator(
             return pmodel
 
         # Foreign keys and OneToOne fields are embedded schemas
+        is_to_one_relation = False
         if (
             field_type is relational.ForeignKeyFieldInstance
             or field_type is relational.OneToOneFieldInstance
             or field_type is relational.BackwardOneToOneRelation
         ):
+            is_to_one_relation = True
             model = get_submodel(fdesc["python_type"])
             if model:
                 if fdesc.get("nullable"):
@@ -410,6 +416,15 @@ def pydantic_model_creator(
             if field_default is not None and not callable(field_default):
                 properties[fname] = (ftype, Field(default=field_default, **fconfig))
             else:
+                if (j := fconfig.get("json_schema_extra")) and (
+                    (
+                        j.get("nullable")
+                        and not is_to_one_relation
+                        and field_type not in (IntField, TextField)
+                    )
+                    or (exclude_readonly and j.get("readOnly"))
+                ):
+                    fconfig["default_factory"] = lambda: None
                 properties[fname] = (ftype, Field(**fconfig))
 
     # Here we endure that the name is unique, but complete objects are still labeled verbatim
@@ -428,6 +443,8 @@ def pydantic_model_creator(
     model = create_model(
         _name,
         __base__=PydanticModel,
+        __module__=module,
+        __validators__=validators,
         **properties,
     )
     # Copy the Model docstring over
