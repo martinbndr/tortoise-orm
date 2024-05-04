@@ -9,6 +9,21 @@ Changelog
 0.20
 ====
 
+0.21.0
+------
+Added
+^^^^^
+- Enhancement for FastAPI lifespan support (#1371)
+- Add __eq__ method to Q to more easily test dynamically-built queries (#1506)
+- Added PlainToTsQuery function for postgres (#1347)
+- Allow field's default keyword to be async function (#1498)
+- Add support for queryset slicing. (#1341)
+
+Fixed
+^^^^^
+- Fix `DatetimeField` use '__year' report `'int' object has no attribute 'utcoffset'`. (#1575)
+- Fix `bulk_update` when using custom fields. (#1564)
+
 0.20.1
 ------
 Added
@@ -22,6 +37,9 @@ Fixed
 - Fix order of fields in `ValuesListQuery` when it has more than 10 fields. (#1492)
 - Fix pydantic v2 pydantic_model_creator nullable field not optional. (#1454)
 - Fix pydantic v2.5 unittest error. (#1535)
+- Fix pydantic_model_creator `exclude_readonly` parameter not working.
+- Fix annotation propagation for non-filter queries. (#1590)
+- Fix blacksheep example unittest error. (#1534)
 
 0.20.0
 ------

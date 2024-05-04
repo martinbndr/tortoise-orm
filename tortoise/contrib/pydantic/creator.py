@@ -36,7 +36,7 @@ class PydanticMeta:
     include: Tuple[str, ...] = ()
 
     #: Fields listed in this property will be excluded from pydantic model
-    exclude: Tuple[str, ...] = ()
+    exclude: Tuple[str, ...] = ("Meta",)
 
     #: Computed fields can be listed here to use in pydantic model
     computed: Tuple[str, ...] = ()
@@ -188,7 +188,7 @@ def pydantic_model_creator(
             f"{fqname};{exclude};{include};{computed};{_stack}:{sort_alphabetically}:{allow_cycles}"
         )
         postfix = (
-            "." + b32encode(sha3_224(hashval.encode("utf-8")).digest()).decode("utf-8").lower()[:6]
+            ":" + b32encode(sha3_224(hashval.encode("utf-8")).digest()).decode("utf-8").lower()[:6]
             if not is_default
             else ""
         )
@@ -289,7 +289,11 @@ def pydantic_model_creator(
         # Add possible computed fields
         field_map.update(
             {
-                k: {"field_type": callable, "function": getattr(cls, k), "description": None}
+                k: {
+                    "field_type": callable,
+                    "function": getattr(cls, k),
+                    "description": None,
+                }
                 for k in computed
             }
         )
@@ -402,7 +406,7 @@ def pydantic_model_creator(
                 json_schema_extra["nullable"] = True
             if fdesc.get("nullable") or field_default is not None or fname in optional:
                 ptype = Optional[ptype]
-            if not (exclude_readonly and fdesc["constraints"].get("readOnly") is True):
+            if not (exclude_readonly and json_schema_extra.get("readOnly") is True):
                 properties[fname] = annotation or ptype
 
         if fname in properties and not isinstance(properties[fname], tuple):
