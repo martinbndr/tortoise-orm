@@ -6,7 +6,7 @@ Changelog
 
 .. rst-class:: emphasize-children
 
-0.20
+0.21
 ====
 
 0.21.0
@@ -23,6 +23,21 @@ Fixed
 ^^^^^
 - Fix `DatetimeField` use '__year' report `'int' object has no attribute 'utcoffset'`. (#1575)
 - Fix `bulk_update` when using custom fields. (#1564)
+- Fix `optional` parameter in `pydantic_model_creator` does not work for pydantic v2. (#1551)
+- Fix `get_annotations` now evaluates annotations in the default scope instead of the app namespace. (#1552)
+- Fix `get_or_create` method. (#1404)
+
+Changed
+^^^^^^^
+- Change `utils.chunk` from function to return iterables lazily.
+- Removed lower bound of id keys in generated pydantic models. (#1602)
+
+Breaking Changes
+^^^^^^^^^^^^^^^^
+- `bulk_create` now does not return anything. (#1614)
+
+0.20
+====
 
 0.20.1
 ------
