@@ -9,7 +9,42 @@ Changelog
 0.21
 ====
 
-0.21.0
+0.21.4 (unreleased)
+------
+Added
+^^^^^
+- Add ObjectDoesNotExistError to show better 404 message. (#759)
+- DoesNotExist and MultipleObjectsReturned support 'Type[Model]' argument. (#742)(#1650)
+
+Fixed
+^^^^^
+- Fix `update_or_create` errors when field value changed. (#1584)
+- Fix bandit check error (#1643)
+- Fix potential race condition in ConnectionWrapper (#1656)
+
+Changed
+^^^^^^^
+- Remove obsolete loop._selector from contrib/test. (#659)(#1636)
+
+`0.21.3 <../0.21.3>`_ - 2024-06-01
+------
+Fixed
+^^^^^
+- Fix `bulk_update` when using source_field for pk (#1633)
+
+`0.21.2 <../0.21.2>`_ - 2024-05-25
+------
+Added
+^^^^^
+- Add `create_unique_index` argument to M2M field and default if it is true (#1620)
+
+`0.21.1 <../0.21.1>`_ - 2024-05-24
+------
+Fixed
+^^^^^
+- Fix error on using old style `pk=True`
+
+`0.21.0 <../0.21.0>`_ - 2024-05-23
 ------
 Added
 ^^^^^
@@ -26,11 +61,15 @@ Fixed
 - Fix `optional` parameter in `pydantic_model_creator` does not work for pydantic v2. (#1551)
 - Fix `get_annotations` now evaluates annotations in the default scope instead of the app namespace. (#1552)
 - Fix `get_or_create` method. (#1404)
+- Use `index_name` instead of `BaseSchemaGenerator._generate_index_name` to generate index name.
+- Use subquery for count() and exists() in `QuerySet` to match count result to `QuerySet` result. (#1607)
 
 Changed
 ^^^^^^^
 - Change `utils.chunk` from function to return iterables lazily.
 - Removed lower bound of id keys in generated pydantic models. (#1602)
+- Rename Field initial arguments `pk`/`index` to `primary_key`/`db_index`. (#1621)
+- Renamed `Model.check` method to `Model._check` to avoid naming collision issues  (#1559) (#1550)
 
 Breaking Changes
 ^^^^^^^^^^^^^^^^
