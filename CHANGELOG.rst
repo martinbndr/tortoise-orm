@@ -9,18 +9,23 @@ Changelog
 0.21
 ====
 
-0.21.4 (unreleased)
+0.21.4 <../0.21.4>`_ - 2024-07-03
 ------
 Added
 ^^^^^
 - Add ObjectDoesNotExistError to show better 404 message. (#759)
 - DoesNotExist and MultipleObjectsReturned support 'Type[Model]' argument. (#742)(#1650)
+- Add argument use_tz and timezone to RegisterTortoise. (#1649)
+- Support await `tortoise.contrib.fastapi.RegisterTortoise`. (#1662)
+- Add `tortoise.contrib.test.init_memory_sqlite`. (#1657)
 
 Fixed
 ^^^^^
 - Fix `update_or_create` errors when field value changed. (#1584)
 - Fix bandit check error (#1643)
 - Fix potential race condition in ConnectionWrapper (#1656)
+- Fix py312 warning for datetime.utcnow (#1661)
+- Fix reusing values and value_list queries (#780)
 
 Changed
 ^^^^^^^
