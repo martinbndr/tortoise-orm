@@ -85,7 +85,9 @@ class PsycopgClient(postgres_client.BasePostgresClient):
             )
 
     async def create_pool(self, **kwargs) -> AsyncConnectionPool:
-        return AsyncConnectionPool(**kwargs)
+        pool = AsyncConnectionPool(open=False, **kwargs)
+        await pool.open()
+        return pool
 
     async def db_delete(self) -> None:
         try:
@@ -200,7 +202,7 @@ class TransactionWrapper(PsycopgClient, base_client.BaseTransactionWrapper):
     def _in_transaction(self) -> base_client.TransactionContext:
         return base_client.NestedTransactionPooledContext(self)
 
-    def acquire_connection(self) -> base_client.ConnectionWrapper:
+    def acquire_connection(self) -> base_client.ConnectionWrapper[psycopg.AsyncConnection]:
         return base_client.ConnectionWrapper(self._lock, self)
 
     @postgres_client.translate_exceptions

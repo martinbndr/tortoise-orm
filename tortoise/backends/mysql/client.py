@@ -1,6 +1,16 @@
 import asyncio
 from functools import wraps
-from typing import Any, Callable, List, Optional, SupportsInt, Tuple, TypeVar, Union
+from typing import (
+    Any,
+    Callable,
+    Coroutine,
+    List,
+    Optional,
+    SupportsInt,
+    Tuple,
+    TypeVar,
+    Union,
+)
 
 try:
     import asyncmy as mysql
@@ -33,13 +43,13 @@ from tortoise.exceptions import (
     TransactionManagementError,
 )
 
-FuncType = Callable[..., Any]
-F = TypeVar("F", bound=FuncType)
+T = TypeVar("T")
+FuncType = Callable[..., Coroutine[None, None, T]]
 
 
-def translate_exceptions(func: F) -> F:
+def translate_exceptions(func: FuncType) -> FuncType:
     @wraps(func)
-    async def translate_exceptions_(self, *args):
+    async def translate_exceptions_(self, *args) -> T:
         try:
             return await func(self, *args)
         except (
@@ -53,7 +63,7 @@ def translate_exceptions(func: F) -> F:
         except errors.IntegrityError as exc:
             raise IntegrityError(exc)
 
-    return translate_exceptions_  # type: ignore
+    return translate_exceptions_
 
 
 class MySQLClient(BaseDBAsyncClient):
@@ -124,7 +134,7 @@ class MySQLClient(BaseDBAsyncClient):
                                 self.capabilities.__dict__["supports_transactions"] = False
                         hours = timezone.now().utcoffset().seconds / 3600  # type: ignore
                         tz = "{:+d}:{:02d}".format(int(hours), int((hours % 1) * 60))
-                        await cursor.execute(f"SET SESSION time_zone='{tz}';")
+                        await cursor.execute(f"SET time_zone='{tz}';")
             self.log.debug("Created connection %s pool with params: %s", self._pool, self._template)
         except errors.OperationalError:
             raise DBConnectionError(f"Can't connect to MySQL server: {self._template}")
@@ -228,7 +238,7 @@ class TransactionWrapper(MySQLClient, BaseTransactionWrapper):
     def _in_transaction(self) -> "TransactionContext":
         return NestedTransactionPooledContext(self)
 
-    def acquire_connection(self) -> ConnectionWrapper:
+    def acquire_connection(self) -> ConnectionWrapper[mysql.Connection]:
         return ConnectionWrapper(self._lock, self)
 
     @translate_exceptions
