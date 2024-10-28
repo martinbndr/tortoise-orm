@@ -99,7 +99,7 @@ class RegisterTortoise(AbstractAsyncContextManager):
 
     def __init__(
         self,
-        app: FastAPI,
+        app: Optional[FastAPI] = None,
         config: Optional[dict] = None,
         config_file: Optional[str] = None,
         db_url: Optional[str] = None,
@@ -120,7 +120,7 @@ class RegisterTortoise(AbstractAsyncContextManager):
         self.timezone = timezone
         self._create_db = _create_db
 
-        if add_exception_handlers:
+        if add_exception_handlers and app is not None:
 
             @app.exception_handler(DoesNotExist)
             async def doesnotexist_exception_handler(request: "Request", exc: DoesNotExist):
@@ -257,7 +257,7 @@ def register_tortoise(
         # Leave on_event here to compare with old versions
         # So people can upgrade tortoise-orm in running project without changing any code
 
-        @app.on_event("startup")  # type: ignore[unreachable]
+        @app.on_event("startup")
         async def init_orm() -> None:  # pylint: disable=W0612
             await orm.init_orm()
 
