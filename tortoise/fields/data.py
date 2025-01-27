@@ -353,10 +353,11 @@ class DatetimeField(Field[datetime.datetime], datetime.datetime):
                 value = datetime.datetime.fromtimestamp(value)
             else:
                 value = parse_datetime(value)
-            if timezone.is_naive(value):
-                value = timezone.make_aware(value, get_timezone())
-            else:
-                value = localtime(value)
+            #if timezone.is_naive(value):
+                #value = timezone.make_aware(value, get_timezone())
+            #else:
+            #value = localtime(value)
+        self.validate(value)
         return value
 
     def to_db_value(
@@ -442,8 +443,9 @@ class TimeField(Field[datetime.time], datetime.time):
                 value = datetime.time.fromisoformat(value)
             if isinstance(value, datetime.timedelta):
                 return value
-            if timezone.is_naive(value):
-                value = value.replace(tzinfo=get_default_timezone())
+            #if timezone.is_naive(value):
+                #value = value.replace(tzinfo=get_default_timezone())
+        self.validate(value)
         return value
 
     def to_db_value(
