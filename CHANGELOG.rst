@@ -9,12 +9,13 @@ Changelog
 0.24
 ====
 
-0.24.0 (unreleased)
+0.24.0
 ------
 Fixed
 ^^^^^
 - Rename pypika to pypika_tortoise for fixing package name conflict (#1829)
 - Concurrent connection pool initialization (#1825)
+- `_get_dialects`: support properties (#1859)
 
 Changed
 ^^^^^^^
