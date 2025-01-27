@@ -18,7 +18,7 @@ if TYPE_CHECKING:  # pragma: nocoverage
 
 def _get_fetch_fields(
     pydantic_class: "Type[PydanticModel]", model_class: "Type[Model]"
-) -> List[str]:
+) -> list[str]:
     """
     Recursively collect fields needed to fetch
     :param pydantic_class: The pydantic model class
@@ -105,7 +105,7 @@ class PydanticModel(BaseModel):
         return cls.model_validate(await queryset.prefetch_related(*fetch_fields))
 
     @classmethod
-    async def from_queryset(cls, queryset: "QuerySet") -> List[Self]:
+    async def from_queryset(cls, queryset: "QuerySet") -> list[Self]:
         """
         Returns a serializable pydantic model instance that contains a list of models,
         from the provided queryset.
@@ -123,7 +123,7 @@ class PydanticListModel(RootModel):
     Pydantic BaseModel for List of Tortoise Models
 
     This provides an extra method above the usual Pydantic
-    `model properties <https://pydantic-docs.helpmanual.io/usage/models/#model-properties>`__
+    `model properties <https://docs.pydantic.dev/latest/concepts/models/#model-methods-and-properties>`__
     """
 
     @classmethod

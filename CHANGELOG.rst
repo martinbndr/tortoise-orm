@@ -6,9 +6,92 @@ Changelog
 
 .. rst-class:: emphasize-children
 
+0.24
+====
+
+0.24.0 (unreleased)
+------
+Fixed
+^^^^^
+- Rename pypika to pypika_tortoise for fixing package name conflict (#1829)
+- Concurrent connection pool initialization (#1825)
+
+Changed
+^^^^^^^
+- Drop support for Python3.8 (#1848)
+- Optimize field conversion to database format to speed up `create` and `bulk_create` (#1840)
+- Improved query performance by optimizing SQL generation (#1837)
+
+0.23.0
+------
+Added
+^^^^^
+- Implement savepoints for transactions (#1816)
+- Added type validation for foreign key fields to ensure type safety. Now raises `ValidationError` when assigning foreign key values with incorrect model types (#1792)
+
+Fixed
+^^^^^
+- Fixed a deadlock in three level nested transactions (#1810)
+- Fix backward_relations in PydanticMeta (#1814)
+
+0.22
+====
+
+0.22.2
+------
+Fixed
+^^^^^
+- Fix bug related to `Connector.div` in combined expressions. (#1794)
+- Fix recovery in case of database downtime (#1796)
+
+Changed
+^^^^^^^
+- Parametrizes UPDATE, DELETE, bulk update and create operations (#1785)
+- Parametrizes related field queries (#1797)
+
+Added
+^^^^^
+- CharEnumField and IntEnumField is supported by pydantic_model_creator (#1798)
+
+0.22.1
+------
+Fixed
+^^^^^
+- Fix unable to use ManyToManyField if OneToOneField passed as Primary Key (#1783)
+- Fix sorting by Term (e.g. RawSQL) (#1788)
+
+Changed
+^^^^^^^
+- Parametrizes SELECT queries including `.count()`, `.exists()`, `.values()`, `.values_list()` (#1777)
+
+0.22.0
+------
+Fixed
+^^^^^
+- Fix enums not quoted, allowing using of str enums for filters (#1776)
+- Primary key field should not be nullable in pydantic schema (#1778)
+- Fix ambiguous column name when grouping with joining (#1766)
+- Fix same model returned by pydantic_model_creator calls with different arguments (#1741)
+
+Added
+^^^^^
+- JSONField adds optional generic support, and supports OpenAPI document generation by specifying `field_type` as a pydantic BaseModel (#1763)
+- Add table_name_generator attribute to Tortoise.init for dynamic table name generation (#1770)
+- Support for annotation and joins F() expressions (#1761) (#1765)
+- Allow use of annotate fields within Case-When expression (#1748)
+- Added new queryset methods: last(), latest(), earliest() (#1754) (#1756)
+
+Changed
+^^^^^^^
+- Change old pydantic docs link to new one (#1775).
+- Refactored pydantic_model_creator, interface not changed  (#1745)
+- Values are no longer validated to be right type upon loading from database (#1750)
+- Refactored private field names in queryset classes (#1751)
+
 0.21
 ====
-0.21.7
+
+0.21.7 <../0.21.7>`_ - 2024-10-14
 ------
 Fixed
 ^^^^^
@@ -24,8 +107,7 @@ Added
 - Add POSIX Regex support for PostgreSQL and MySQL (#1714)
 - support app=None for tortoise.contrib.fastapi.RegisterTortoise (#1733)
 
-
-0.21.6
+0.21.6 <../0.21.6>`_ - 2024-08-17
 ------
 Fixed
 ^^^^^

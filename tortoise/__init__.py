@@ -1,15 +1,19 @@
+from __future__ import annotations
+
 import asyncio
 import importlib
 import importlib.metadata as importlib_metadata
 import json
+import logging
 import os
 import warnings
+from collections.abc import Callable, Coroutine, Iterable
 from copy import deepcopy
 from inspect import isclass
 from types import ModuleType
-from typing import Coroutine, Dict, Iterable, List, Optional, Tuple, Type, Union, cast
+from typing import Any, Type, cast
 
-from pypika import Table
+from pypika_tortoise import Query, Table
 
 from tortoise.backends.base.client import BaseDBAsyncClient
 from tortoise.backends.base.config_generator import expand_db_url, generate_config
@@ -25,11 +29,13 @@ from tortoise.fields.relational import (
 from tortoise.filters import get_m2m_filters
 from tortoise.log import logger
 from tortoise.models import Model, ModelMeta
+from tortoise.timezone import _reset_timezone_cache
 from tortoise.utils import generate_schema_for_client
 
 
 class Tortoise:
-    apps: Dict[str, Dict[str, Type["Model"]]] = {}
+    apps: dict[str, dict[str, Type["Model"]]] = {}
+    table_name_generator: Callable[[Type["Model"]], str] | None = None
     _inited: bool = False
 
     @classmethod
@@ -48,7 +54,7 @@ class Tortoise:
     @classmethod
     def describe_model(
         cls, model: Type["Model"], serializable: bool = True
-    ) -> dict:  # pragma: nocoverage
+    ) -> dict[str, Any]:  # pragma: nocoverage
         """
         Describes the given list of models or ALL registered models.
 
@@ -73,8 +79,8 @@ class Tortoise:
 
     @classmethod
     def describe_models(
-        cls, models: Optional[List[Type["Model"]]] = None, serializable: bool = True
-    ) -> Dict[str, dict]:
+        cls, models: list[Type["Model"]] | None = None, serializable: bool = True
+    ) -> dict[str, dict[str, Any]]:
         """
         Describes the given list of models or ALL registered models.
 
@@ -130,7 +136,7 @@ class Tortoise:
                     f" app '{related_app_name}'."
                 )
 
-        def split_reference(reference: str) -> Tuple[str, str]:
+        def split_reference(reference: str) -> tuple[str, str]:
             """
             Validate, if reference follow the official naming conventions. Throws a
             ConfigurationError with a hopefully helpful message. If successful,
@@ -146,12 +152,9 @@ class Tortoise:
             return items[0], items[1]
 
         def init_fk_o2o_field(model: Type["Model"], field: str, is_o2o=False) -> None:
-            if is_o2o:
-                fk_object: Union[OneToOneFieldInstance, ForeignKeyFieldInstance] = cast(
-                    OneToOneFieldInstance, model._meta.fields_map[field]
-                )
-            else:
-                fk_object = cast(ForeignKeyFieldInstance, model._meta.fields_map[field])
+            fk_object = cast(
+                "OneToOneFieldInstance | ForeignKeyFieldInstance", model._meta.fields_map[field]
+            )
             related_app_name, related_model_name = split_reference(fk_object.model_name)
             related_model = get_related_model(related_app_name, related_model_name)
 
@@ -194,24 +197,24 @@ class Tortoise:
                         f'backward relation "{backward_relation_name}" duplicates in'
                         f" model {related_model_name}"
                     )
-                if is_o2o:
-                    fk_relation: Union[BackwardOneToOneRelation, BackwardFKRelation] = (
-                        BackwardOneToOneRelation(
-                            model,
-                            key_field,
-                            key_fk_object.source_field,
-                            null=True,
-                            description=fk_object.description,
-                        )
+
+                fk_relation = (
+                    BackwardOneToOneRelation(
+                        model,
+                        key_field,
+                        key_fk_object.source_field,
+                        null=True,
+                        description=fk_object.description,
                     )
-                else:
-                    fk_relation = BackwardFKRelation(
+                    if is_o2o
+                    else BackwardFKRelation(
                         model,
                         key_field,
                         key_fk_object.source_field,
                         null=fk_object.null,
                         description=fk_object.description,
                     )
+                )
                 fk_relation.to_field_instance = fk_object.to_field_instance  # type:ignore
                 related_model._meta.add_field(backward_relation_name, fk_relation)
             if is_o2o and fk_object.pk:
@@ -223,7 +226,11 @@ class Tortoise:
                     continue
                 model._meta._inited = True
                 if not model._meta.db_table:
-                    model._meta.db_table = model.__name__.lower()
+                    model._meta.db_table = (
+                        cls.table_name_generator(model)
+                        if cls.table_name_generator
+                        else (model.__name__.lower())
+                    )
 
                 for field in sorted(model._meta.fk_fields):
                     init_fk_o2o_field(model, field)
@@ -235,8 +242,7 @@ class Tortoise:
                     m2m_object = cast(ManyToManyFieldInstance, model._meta.fields_map[field])
                     if m2m_object._generated:
                         continue
-                    backward_key = m2m_object.backward_key
-                    if not backward_key:
+                    if not (backward_key := m2m_object.backward_key):
                         backward_key = f"{model._meta.db_table}_id"
                         if backward_key == m2m_object.forward_key:
                             backward_key = f"{model._meta.db_table}_rel_id"
@@ -248,8 +254,7 @@ class Tortoise:
 
                     m2m_object.related_model = related_model
 
-                    backward_relation_name = m2m_object.related_name
-                    if not backward_relation_name:
+                    if not (backward_relation_name := m2m_object.related_name):
                         backward_relation_name = m2m_object.related_name = (
                             f"{model._meta.db_table}s"
                         )
@@ -279,9 +284,7 @@ class Tortoise:
                     related_model._meta.add_field(backward_relation_name, m2m_relation)
 
     @classmethod
-    def _discover_models(
-        cls, models_path: Union[ModuleType, str], app_label: str
-    ) -> List[Type["Model"]]:
+    def _discover_models(cls, models_path: ModuleType | str, app_label: str) -> list[Type["Model"]]:
         if isinstance(models_path, ModuleType):
             module = models_path
         else:
@@ -290,11 +293,11 @@ class Tortoise:
             except ImportError:
                 raise ConfigurationError(f'Module "{models_path}" not found')
         discovered_models = []
-        possible_models = getattr(module, "__models__", None)
-        try:
-            possible_models = [*possible_models]  # type:ignore
-        except TypeError:
-            possible_models = None
+        if possible_models := getattr(module, "__models__", None):
+            try:
+                possible_models = [*possible_models]
+            except TypeError:
+                possible_models = None
         if not possible_models:
             possible_models = [getattr(module, attr_name) for attr_name in dir(module)]
         for attr in possible_models:
@@ -310,7 +313,7 @@ class Tortoise:
     @classmethod
     def init_models(
         cls,
-        models_paths: Iterable[Union[ModuleType, str]],
+        models_paths: Iterable[ModuleType | str],
         app_label: str,
         _init_relations: bool = True,
     ) -> None:
@@ -326,7 +329,7 @@ class Tortoise:
 
         :raises ConfigurationError: If models are invalid.
         """
-        app_models: List[Type[Model]] = []
+        app_models: list[Type[Model]] = []
         for models_path in models_paths:
             app_models += cls._discover_models(models_path, app_label)
 
@@ -336,7 +339,7 @@ class Tortoise:
             cls._init_relations()
 
     @classmethod
-    def _init_apps(cls, apps_config: dict) -> None:
+    def _init_apps(cls, apps_config: dict[str, dict[str, Any]]) -> None:
         for name, info in apps_config.items():
             try:
                 connections.get(info.get("default_connection", "default"))
@@ -379,25 +382,29 @@ class Tortoise:
             for model in app.values():
                 model._meta.finalise_model()
                 model._meta.basetable = Table(name=model._meta.db_table, schema=model._meta.schema)
-                model._meta.basequery = model._meta.db.query_class.from_(model._meta.basetable)
-                model._meta.basequery_all_fields = model._meta.basequery.select(
-                    *model._meta.db_fields
+                basequery = model._meta.db.query_class.from_(model._meta.basetable)
+                model._meta.basequery = cast(Query, basequery)
+                model._meta.basequery_all_fields = cast(
+                    Query, basequery.select(*model._meta.db_fields)
                 )
 
     @classmethod
     async def init(
         cls,
-        config: Optional[dict] = None,
-        config_file: Optional[str] = None,
+        config: dict[str, Any] | None = None,
+        config_file: str | None = None,
         _create_db: bool = False,
-        db_url: Optional[str] = None,
-        modules: Optional[Dict[str, Iterable[Union[str, ModuleType]]]] = None,
+        db_url: str | None = None,
+        modules: dict[str, Iterable[str | ModuleType]] | None = None,
         use_tz: bool = False,
         timezone: str = "UTC",
-        routers: Optional[List[Union[str, Type]]] = None,
+        routers: list[str | type] | None = None,
+        table_name_generator: Callable[[Type["Model"]], str] | None = None,
     ) -> None:
         """
-        Sets up Tortoise-ORM.
+        Sets up Tortoise-ORM: loads apps and models, configures database connections but does not
+        connect to the database yet. The actual connection or connection pool is established
+        lazily on first query execution.
 
         You can configure using only one of ``config``, ``config_file``
         and ``(db_url, modules)``.
@@ -454,6 +461,10 @@ class Tortoise:
             Timezone to use, default is UTC.
         :param routers:
             A list of db routers str path or module.
+        :param table_name_generator:
+            A callable that generates table names. The model class will be passed as its argument.
+            If not provided, Tortoise will use the lowercase model name as the table name.
+            Example: ``lambda cls: f"prefix_{cls.__name__.lower()}"``
 
         :raises ConfigurationError: For any configuration error
         """
@@ -466,33 +477,52 @@ class Tortoise:
 
         if config_file:
             config = cls._get_config_from_config_file(config_file)
-
-        if db_url:
+        elif db_url:
             if not modules:
                 raise ConfigurationError('You must specify "db_url" and "modules" together')
             config = generate_config(db_url, modules)
+        else:
+            assert config is not None  # To improve type hints
 
         try:
-            connections_config = config["connections"]  # type: ignore
+            connections_config = config["connections"]
         except KeyError:
             raise ConfigurationError('Config must define "connections" section')
 
         try:
-            apps_config = config["apps"]  # type: ignore
+            apps_config = config["apps"]
         except KeyError:
             raise ConfigurationError('Config must define "apps" section')
 
-        use_tz = config.get("use_tz", use_tz)  # type: ignore
-        timezone = config.get("timezone", timezone)  # type: ignore
-        routers = config.get("routers", routers)  # type: ignore
+        use_tz = config.get("use_tz", use_tz)
+        timezone = config.get("timezone", timezone)
+        routers = config.get("routers", routers)
 
-        # Mask passwords in logs output
+        cls.table_name_generator = table_name_generator
+
+        if logger.isEnabledFor(logging.DEBUG):
+            str_connection_config = cls.star_password(connections_config)
+            logger.debug(
+                "Tortoise-ORM startup\n    connections: %s\n    apps: %s",
+                str_connection_config,
+                str(apps_config),
+            )
+
+        cls._init_timezone(use_tz, timezone)
+        await connections._init(connections_config, _create_db)
+        cls._init_apps(apps_config)
+        cls._init_routers(routers)
+
+        cls._inited = True
+
+    @staticmethod
+    def star_password(connections_config) -> str:
+        # Mask passwords to hide sensitive information in logs output
         passwords = []
         for name, info in connections_config.items():
             if isinstance(info, str):
                 info = expand_db_url(info)
-            password = info.get("credentials", {}).get("password")
-            if password:
+            if password := info.get("credentials", {}).get("password"):
                 passwords.append(password)
 
         str_connection_config = str(connections_config)
@@ -502,22 +532,10 @@ class Tortoise:
                 # Show one third of the password at beginning (may be better for debugging purposes)
                 f"{password[0:len(password) // 3]}***",
             )
-
-        logger.debug(
-            "Tortoise-ORM startup\n    connections: %s\n    apps: %s",
-            str_connection_config,
-            str(apps_config),
-        )
-
-        cls._init_timezone(use_tz, timezone)
-        await connections._init(connections_config, _create_db)
-        cls._init_apps(apps_config)
-        cls._init_routers(routers)
-
-        cls._inited = True
+        return str_connection_config
 
     @classmethod
-    def _init_routers(cls, routers: Optional[List[Union[str, type]]] = None):
+    def _init_routers(cls, routers: list[str | type] | None = None) -> None:
         from tortoise.router import router
 
         routers = routers or []
@@ -598,6 +616,7 @@ class Tortoise:
     def _init_timezone(cls, use_tz: bool, timezone: str) -> None:
         os.environ["USE_TZ"] = str(use_tz)
         os.environ["TIMEZONE"] = timezone
+        _reset_timezone_cache()
 
 
 def run_async(coro: Coroutine) -> None:

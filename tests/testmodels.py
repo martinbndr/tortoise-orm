@@ -9,14 +9,15 @@ import re
 import uuid
 from decimal import Decimal
 from enum import Enum, IntEnum
-from typing import List, Union
+from typing import Union
 
 import pytz
-from pydantic import ConfigDict
+from pydantic import BaseModel, ConfigDict
 
 from tortoise import fields
 from tortoise.exceptions import ValidationError
 from tortoise.fields import NO_ACTION
+from tortoise.indexes import Index
 from tortoise.manager import Manager
 from tortoise.models import Model
 from tortoise.queryset import QuerySet
@@ -32,6 +33,15 @@ from tortoise.validators import (
 
 def generate_token():
     return binascii.hexlify(os.urandom(16)).decode("ascii")
+
+
+class TestSchemaForJSONField(BaseModel):
+    foo: int
+    bar: str
+    __test__ = False
+
+
+json_pydantic_default = TestSchemaForJSONField(foo=1, bar="baz")
 
 
 class Author(Model):
@@ -117,6 +127,27 @@ class Event(Model):
         return self.name
 
 
+class ModelTestPydanticMetaBackwardRelations1(Model):
+    class PydanticMeta:
+        backward_relations = False
+
+
+class ModelTestPydanticMetaBackwardRelations2(Model): ...
+
+
+class ModelTestPydanticMetaBackwardRelations3(Model):
+    one: fields.ForeignKeyRelation[ModelTestPydanticMetaBackwardRelations1] = (
+        fields.ForeignKeyField(
+            "models.ModelTestPydanticMetaBackwardRelations1", related_name="threes"
+        )
+    )
+    two: fields.ForeignKeyRelation[ModelTestPydanticMetaBackwardRelations2] = (
+        fields.ForeignKeyField(
+            "models.ModelTestPydanticMetaBackwardRelations2", related_name="threes"
+        )
+    )
+
+
 class Node(Model):
     name = fields.CharField(max_length=10)
 
@@ -140,6 +171,20 @@ class Address(Model):
         related_name="address",
         primary_key=True,
     )
+
+
+class M2mWithO2oPk(Model):
+    name = fields.CharField(max_length=64)
+    address: fields.ManyToManyRelation["Address"] = fields.ManyToManyField("models.Address")
+
+
+class O2oPkModelWithM2m(Model):
+    author: fields.OneToOneRelation[Author] = fields.OneToOneField(
+        "models.Author",
+        on_delete=fields.CASCADE,
+        primary_key=True,
+    )
+    nodes: fields.ManyToManyRelation["Node"] = fields.ManyToManyField("models.Node")
 
 
 class Dest_null(Model):
@@ -286,21 +331,30 @@ class FloatFields(Model):
     floatnum_null = fields.FloatField(null=True)
 
 
+def raise_if_not_dict_or_list(value: Union[dict, list]):
+    if not isinstance(value, (dict, list)):
+        raise ValidationError("Value must be a dict or list.")
+
+
 class JSONFields(Model):
     """
     This model contains many JSON blobs
     """
 
-    @staticmethod
-    def dict_or_list(value: Union[dict, list]):
-        if not isinstance(value, (dict, list)):
-            raise ValidationError("Value must be a dict or list.")
-
     id = fields.IntField(primary_key=True)
-    data = fields.JSONField()
-    data_null = fields.JSONField(null=True)
-    data_default = fields.JSONField(default={"a": 1})
-    data_validate = fields.JSONField(null=True, validators=[lambda v: JSONFields.dict_or_list(v)])
+    data = fields.JSONField()  # type: ignore # Test cases where generics are not provided
+    data_null = fields.JSONField[Union[dict, list]](null=True)
+    data_default = fields.JSONField[dict](default={"a": 1})
+
+    # From Python 3.10 onwards, validator can be defined with staticmethod
+    data_validate = fields.JSONField[Union[dict, list]](
+        null=True, validators=[raise_if_not_dict_or_list]
+    )
+
+    # Test cases where generics are provided and the type is a pydantic base model
+    data_pydantic = fields.JSONField[TestSchemaForJSONField](
+        default=json_pydantic_default, field_type=TestSchemaForJSONField
+    )
 
 
 class UUIDFields(Model):
@@ -906,7 +960,7 @@ class OldStyleModel(Model):
 
 
 def camelize_var(var_name: str):
-    var_parts: List[str] = var_name.split("_")
+    var_parts: list[str] = var_name.split("_")
     return var_parts[0] + "".join([part.title() for part in var_parts[1:]])
 
 
@@ -945,3 +999,71 @@ class CallableDefault(Model):
     id = fields.IntField(primary_key=True)
     callable_default = fields.CharField(max_length=32, default=callable_default)
     async_default = fields.CharField(max_length=32, default=async_callable_default)
+
+
+class BenchmarkFewFields(Model):
+    timestamp = fields.DatetimeField(auto_now_add=True)
+    level = fields.SmallIntField(index=True)
+    text = fields.CharField(max_length=255)
+
+
+class BenchmarkManyFields(Model):
+    timestamp = fields.DatetimeField(auto_now_add=True)
+    level = fields.SmallIntField(index=True)
+    text = fields.CharField(max_length=255)
+
+    col_float1 = fields.FloatField(default=2.2)
+    col_smallint1 = fields.SmallIntField(default=2)
+    col_int1 = fields.IntField(default=2000000)
+    col_bigint1 = fields.BigIntField(default=99999999)
+    col_char1 = fields.CharField(max_length=255, default="value1")
+    col_text1 = fields.TextField(default="Moo,Foo,Baa,Waa,Moo,Foo,Baa,Waa,Moo,Foo,Baa,Waa")
+    col_decimal1 = fields.DecimalField(12, 8, default=Decimal("2.2"))
+    col_json1 = fields.JSONField[dict](
+        default={"a": 1, "b": "b", "c": [2], "d": {"e": 3}, "f": True}
+    )
+
+    col_float2 = fields.FloatField(null=True)
+    col_smallint2 = fields.SmallIntField(null=True)
+    col_int2 = fields.IntField(null=True)
+    col_bigint2 = fields.BigIntField(null=True)
+    col_char2 = fields.CharField(max_length=255, null=True)
+    col_text2 = fields.TextField(null=True)
+    col_decimal2 = fields.DecimalField(12, 8, null=True)
+    col_json2 = fields.JSONField[dict](null=True)
+
+    col_float3 = fields.FloatField(default=2.2)
+    col_smallint3 = fields.SmallIntField(default=2)
+    col_int3 = fields.IntField(default=2000000)
+    col_bigint3 = fields.BigIntField(default=99999999)
+    col_char3 = fields.CharField(max_length=255, default="value1")
+    col_text3 = fields.TextField(default="Moo,Foo,Baa,Waa,Moo,Foo,Baa,Waa,Moo,Foo,Baa,Waa")
+    col_decimal3 = fields.DecimalField(12, 8, default=Decimal("2.2"))
+    col_json3 = fields.JSONField[dict](
+        default={"a": 1, "b": "b", "c": [2], "d": {"e": 3}, "f": True}
+    )
+
+    col_float4 = fields.FloatField(null=True)
+    col_smallint4 = fields.SmallIntField(null=True)
+    col_int4 = fields.IntField(null=True)
+    col_bigint4 = fields.BigIntField(null=True)
+    col_char4 = fields.CharField(max_length=255, null=True)
+    col_text4 = fields.TextField(null=True)
+    col_decimal4 = fields.DecimalField(12, 8, null=True)
+    col_json4 = fields.JSONField[dict](null=True)
+
+
+class ModelWithIndexes(Model):
+    id = fields.IntField(primary_key=True)
+    indexed = fields.CharField(max_length=16, index=True)
+    unique_indexed = fields.CharField(max_length=16, unique=True)
+    f1 = fields.CharField(max_length=16)
+    f2 = fields.CharField(max_length=16)
+    u1 = fields.IntField()
+    u2 = fields.IntField()
+
+    class Meta:
+        indexes = [
+            Index(fields=["f1", "f2"]),
+        ]
+        unique_together = [("u1", "u2")]

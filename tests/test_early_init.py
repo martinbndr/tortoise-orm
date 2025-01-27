@@ -35,8 +35,8 @@ class Event(Model):
         ordering = ["name"]
 
 
-class TestBasic(test.TestCase):
-    def test_early_init(self):
+class TestBasic(test.SimpleTestCase):
+    async def test_early_init(self):
         self.maxDiff = None
         Event_TooEarly = pydantic_model_creator(Event)
         self.assertEqual(
@@ -167,7 +167,7 @@ class TestBasic(test.TestCase):
             Event_Pydantic.model_json_schema(),
             {
                 "$defs": {
-                    "leaf": {
+                    "Tournament_aapnxb_leaf": {
                         "additionalProperties": False,
                         "properties": {
                             "id": {
@@ -211,7 +211,7 @@ class TestBasic(test.TestCase):
                         "type": "string",
                     },
                     "tournament": {
-                        "anyOf": [{"$ref": "#/$defs/leaf"}, {"type": "null"}],
+                        "anyOf": [{"$ref": "#/$defs/Tournament_aapnxb_leaf"}, {"type": "null"}],
                         "nullable": True,
                         "title": "Tournament",
                     },

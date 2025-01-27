@@ -1,15 +1,23 @@
+from __future__ import annotations
+
 import re
 from hashlib import sha256
-from typing import TYPE_CHECKING, Any, List, Set, Type, Union, cast
+from typing import TYPE_CHECKING, Any, Type, cast
+
+from pypika_tortoise.context import DEFAULT_SQL_CONTEXT
 
 from tortoise.exceptions import ConfigurationError
 from tortoise.fields import JSONField, TextField, UUIDField
+from tortoise.fields.relational import OneToOneFieldInstance
 from tortoise.indexes import Index
 
 if TYPE_CHECKING:  # pragma: nocoverage
     from tortoise.backends.base.client import BaseDBAsyncClient
-    from tortoise.fields.relational import ForeignKeyFieldInstance  # noqa
-    from tortoise.fields.relational import ManyToManyFieldInstance
+    from tortoise.fields import Field
+    from tortoise.fields.relational import (
+        ForeignKeyFieldInstance,
+        ManyToManyFieldInstance,
+    )
     from tortoise.models import Model
 
 # pylint: disable=R0201
@@ -18,9 +26,11 @@ if TYPE_CHECKING:  # pragma: nocoverage
 class BaseSchemaGenerator:
     DIALECT = "sql"
     TABLE_CREATE_TEMPLATE = 'CREATE TABLE {exists}"{table_name}" ({fields}){extra}{comment};'
-    FIELD_TEMPLATE = '"{name}" {type} {nullable} {unique}{primary}{default}{comment}'
-    INDEX_CREATE_TEMPLATE = 'CREATE INDEX {exists}"{index_name}" ON "{table_name}" ({fields});'
-    UNIQUE_INDEX_CREATE_TEMPLATE = INDEX_CREATE_TEMPLATE.replace(" INDEX", " UNIQUE INDEX")
+    FIELD_TEMPLATE = '"{name}" {type}{nullable}{unique}{primary}{default}{comment}'
+    INDEX_CREATE_TEMPLATE = (
+        'CREATE {index_type}INDEX {exists}"{index_name}" ON "{table_name}" ({fields}){extra};'
+    )
+    UNIQUE_INDEX_CREATE_TEMPLATE = INDEX_CREATE_TEMPLATE.replace("INDEX", "UNIQUE INDEX")
     UNIQUE_CONSTRAINT_CREATE_TEMPLATE = 'CONSTRAINT "{index_name}" UNIQUE ({fields})'
     GENERATED_PK_TEMPLATE = '"{field_name}" {generated_sql}{comment}'
     FK_TEMPLATE = ' REFERENCES "{table}" ("{field}") ON DELETE {on_delete}{comment}'
@@ -103,7 +113,7 @@ class BaseSchemaGenerator:
         return ""
 
     @classmethod
-    def _get_escape_translation_table(cls) -> List[str]:
+    def _get_escape_translation_table(cls) -> list[str]:
         """escape sequence taken based on definition provided by PostgreSQL and MySQL"""
         _escape_table = [chr(x) for x in range(128)]
         _escape_table[0] = "\\0"
@@ -124,7 +134,7 @@ class BaseSchemaGenerator:
     def _table_generate_extra(self, table: str) -> str:
         return ""
 
-    def _get_inner_statements(self) -> List[str]:
+    def _get_inner_statements(self) -> list[str]:
         return []
 
     def quote(self, val: str) -> str:
@@ -136,7 +146,7 @@ class BaseSchemaGenerator:
         return sha256(";".join(args).encode("utf-8")).hexdigest()[:length]
 
     def _generate_index_name(
-        self, prefix: str, model: "Union[Type[Model], str]", field_names: List[str]
+        self, prefix: str, model: "Type[Model] | str", field_names: list[str]
     ) -> str:
         # NOTE: for compatibility, index name should not be longer than 30
         # characters (Oracle limit).
@@ -163,35 +173,54 @@ class BaseSchemaGenerator:
         )
         return index_name
 
-    def _get_index_sql(self, model: "Type[Model]", field_names: List[str], safe: bool) -> str:
+    def _get_index_sql(
+        self,
+        model: "Type[Model]",
+        field_names: list[str],
+        safe: bool,
+        index_name: str | None = None,
+        index_type: str | None = None,
+        extra: str | None = None,
+    ) -> str:
         return self.INDEX_CREATE_TEMPLATE.format(
             exists="IF NOT EXISTS " if safe else "",
-            index_name=self._generate_index_name("idx", model, field_names),
+            index_name=index_name or self._generate_index_name("idx", model, field_names),
+            index_type=f"{index_type} " if index_type else "",
             table_name=model._meta.db_table,
             fields=", ".join([self.quote(f) for f in field_names]),
+            extra=f"{extra}" if extra else "",
         )
 
-    def _get_unique_index_sql(self, exists: str, table_name: str, field_names: List[str]) -> str:
+    def _get_unique_index_sql(self, exists: str, table_name: str, field_names: list[str]) -> str:
         index_name = self._generate_index_name("uidx", table_name, field_names)
         return self.UNIQUE_INDEX_CREATE_TEMPLATE.format(
             exists=exists,
             index_name=index_name,
+            index_type="",
             table_name=table_name,
             fields=", ".join([self.quote(f) for f in field_names]),
+            extra="",
         )
 
-    def _get_unique_constraint_sql(self, model: "Type[Model]", field_names: List[str]) -> str:
+    def _get_unique_constraint_sql(self, model: "Type[Model]", field_names: list[str]) -> str:
         return self.UNIQUE_CONSTRAINT_CREATE_TEMPLATE.format(
             index_name=self._generate_index_name("uid", model, field_names),
             fields=", ".join([self.quote(f) for f in field_names]),
         )
+
+    def _get_pk_field_sql_type(self, pk_field: "Field") -> str:
+        if isinstance(pk_field, OneToOneFieldInstance):
+            return self._get_pk_field_sql_type(pk_field.related_model._meta.pk)
+        if sql_type := pk_field.get_for_dialect(self.DIALECT, "SQL_TYPE"):
+            return sql_type
+        raise ConfigurationError(f"Can't get SQL type of {pk_field} for {self.DIALECT}")
 
     def _get_table_sql(self, model: "Type[Model]", safe: bool = True) -> dict:
         fields_to_create = []
         fields_with_index = []
         m2m_tables_for_create = []
         references = set()
-        models_to_create: "List[Type[Model]]" = []
+        models_to_create: "list[Type[Model]]" = []
 
         self._get_models_to_create(models_to_create)
         models_tables = [model._meta.db_table for model in models_to_create]
@@ -240,8 +269,8 @@ class BaseSchemaGenerator:
                         )
                         continue
 
-            nullable = "NOT NULL" if not field_object.null else ""
-            unique = "UNIQUE" if field_object.unique else ""
+            nullable = " NOT NULL" if not field_object.null else ""
+            unique = " UNIQUE" if field_object.unique else ""
 
             if getattr(field_object, "reference", None):
                 reference = cast("ForeignKeyFieldInstance", field_object.reference)
@@ -313,22 +342,37 @@ class BaseSchemaGenerator:
                     self._get_unique_constraint_sql(model, unique_together_to_create)
                 )
 
-        # Indexes.
         _indexes = [
             self._get_index_sql(model, [field_name], safe=safe) for field_name in fields_with_index
         ]
 
         if model._meta.indexes:
-            for indexes_list in model._meta.indexes:
-                if not isinstance(indexes_list, Index):
-                    indexes_to_create = []
-                    for field in indexes_list:
+            for index in model._meta.indexes:
+                if not isinstance(index, Index):
+                    fields = []
+                    for field in index:
                         field_object = model._meta.fields_map[field]
-                        indexes_to_create.append(field_object.source_field or field)
+                        fields.append(field_object.source_field or field)
 
-                    _indexes.append(self._get_index_sql(model, indexes_to_create, safe=safe))
+                    _indexes.append(self._get_index_sql(model, fields, safe=safe))
                 else:
-                    _indexes.append(indexes_list.get_sql(self, model, safe))
+                    if index.fields:
+                        fields = [f for f in index.fields]
+                    elif index.expressions:
+                        fields = [
+                            f"({expression.get_sql(DEFAULT_SQL_CONTEXT)})"
+                            for expression in index.expressions
+                        ]
+                    else:
+                        raise ConfigurationError(
+                            "At least one field or expression is required to define an index."
+                        )
+
+                    _indexes.append(
+                        self._get_index_sql(
+                            model, fields, safe=safe, index_type=index.INDEX_TYPE, extra=index.extra
+                        )
+                    )
 
         field_indexes_sqls = [val for val in list(dict.fromkeys(_indexes)) if val]
 
@@ -380,17 +424,17 @@ class BaseSchemaGenerator:
                 )
             exists = "IF NOT EXISTS " if safe else ""
             table_name = field_object.through
+            backward_type = self._get_pk_field_sql_type(model._meta.pk)
+            forward_type = self._get_pk_field_sql_type(field_object.related_model._meta.pk)
             m2m_create_string = self.M2M_TABLE_TEMPLATE.format(
                 exists=exists,
                 table_name=table_name,
                 backward_fk=backward_fk,
                 forward_fk=forward_fk,
                 backward_key=backward_key,
-                backward_type=model._meta.pk.get_for_dialect(self.DIALECT, "SQL_TYPE"),
+                backward_type=backward_type,
                 forward_key=forward_key,
-                forward_type=field_object.related_model._meta.pk.get_for_dialect(
-                    self.DIALECT, "SQL_TYPE"
-                ),
+                forward_type=forward_type,
                 extra=self._table_generate_extra(table=field_object.through),
                 comment=(
                     self._table_comment_generator(
@@ -430,7 +474,7 @@ class BaseSchemaGenerator:
             "m2m_tables": m2m_tables_for_create,
         }
 
-    def _get_models_to_create(self, models_to_create: "List[Type[Model]]") -> None:
+    def _get_models_to_create(self, models_to_create: "list[Type[Model]]") -> None:
         from tortoise import Tortoise
 
         for app in Tortoise.apps.values():
@@ -440,7 +484,7 @@ class BaseSchemaGenerator:
                     models_to_create.append(model)
 
     def get_create_schema_sql(self, safe: bool = True) -> str:
-        models_to_create: "List[Type[Model]]" = []
+        models_to_create: "list[Type[Model]]" = []
 
         self._get_models_to_create(models_to_create)
 
@@ -450,9 +494,9 @@ class BaseSchemaGenerator:
 
         tables_to_create_count = len(tables_to_create)
 
-        created_tables: Set[dict] = set()
-        ordered_tables_for_create: List[str] = []
-        m2m_tables_to_create: List[str] = []
+        created_tables: set[dict] = set()
+        ordered_tables_for_create: list[str] = []
+        m2m_tables_to_create: list[str] = []
         while True:
             if len(created_tables) == tables_to_create_count:
                 break

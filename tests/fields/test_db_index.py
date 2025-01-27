@@ -1,8 +1,54 @@
 from typing import Any
 
+from pypika_tortoise.terms import Field
+
+from tests.testmodels import ModelWithIndexes
 from tortoise import fields
 from tortoise.contrib import test
 from tortoise.exceptions import ConfigurationError
+from tortoise.indexes import Index
+
+
+class CustomIndex(Index):
+    def __init__(self, *args, **kw):
+        super().__init__(*args, **kw)
+        self._foo = ""
+
+
+class TestIndexHashEqualRepr(test.SimpleTestCase):
+    def test_index_eq(self):
+        assert Index(fields=("id",)) == Index(fields=("id",))
+        assert CustomIndex(fields=("id",)) == CustomIndex(fields=("id",))
+        assert Index(fields=("id", "name")) == Index(fields=["id", "name"])
+
+        assert Index(fields=("id", "name")) != Index(fields=("name", "id"))
+        assert Index(fields=("id",)) != Index(fields=("name",))
+        assert CustomIndex(fields=("id",)) != Index(fields=("id",))
+
+    def test_index_hash(self):
+        assert hash(Index(fields=("id",))) == hash(Index(fields=("id",)))
+        assert hash(Index(fields=("id", "name"))) == hash(Index(fields=["id", "name"]))
+        assert hash(CustomIndex(fields=("id", "name"))) == hash(CustomIndex(fields=["id", "name"]))
+
+        assert hash(Index(fields=("id", "name"))) != hash(Index(fields=["name", "id"]))
+        assert hash(Index(fields=("id",))) != hash(Index(fields=("name",)))
+
+        indexes = {Index(fields=("id",))}
+        indexes.add(Index(fields=("id",)))
+        assert len(indexes) == 1
+        indexes.add(CustomIndex(fields=("id",)))
+        assert len(indexes) == 2
+        indexes.add(Index(fields=("name",)))
+        assert len(indexes) == 3
+
+    def test_index_repr(self):
+        assert repr(Index(fields=("id",))) == "Index(fields=['id'])"
+        assert repr(Index(fields=("id", "name"))) == "Index(fields=['id', 'name'])"
+        assert repr(Index(fields=("id",), name="MyIndex")) == "Index(fields=['id'], name='MyIndex')"
+        assert repr(Index(Field("id"))) == f'Index({str(Field("id"))})'
+        assert repr(Index(Field("a"), name="Id")) == f"Index({str(Field('a'))}, name='Id')"
+        with self.assertRaises(ConfigurationError):
+            Index(Field("id"), fields=("name",))
 
 
 class TestIndexAlias(test.TestCase):
@@ -49,3 +95,11 @@ class TestIndexAliasUUID(TestIndexAlias):
 class TestIndexAliasChar(TestIndexAlias):
     Field = fields.CharField
     init_kwargs = {"max_length": 10}
+
+
+class TestModelWithIndexes(test.TestCase):
+    def test_meta(self):
+        self.assertEqual(ModelWithIndexes._meta.indexes, [Index(fields=("f1", "f2"))])
+        self.assertTrue(ModelWithIndexes._meta.fields_map["id"].index)
+        self.assertTrue(ModelWithIndexes._meta.fields_map["indexed"].index)
+        self.assertTrue(ModelWithIndexes._meta.fields_map["unique_indexed"].unique)

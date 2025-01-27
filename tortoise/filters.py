@@ -1,20 +1,20 @@
-import operator
-from functools import partial
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Callable,
-    Dict,
-    Iterable,
-    Optional,
-    Tuple,
-    TypedDict,
-)
+from __future__ import annotations
 
-from pypika import Table
-from pypika.enums import DatePart, SqlTypes
-from pypika.functions import Cast, Extract, Upper
-from pypika.terms import BasicCriterion, Criterion, Equality, Term, ValueWrapper
+import operator
+from collections.abc import Callable, Iterable
+from functools import partial
+from typing import TYPE_CHECKING, Any, Optional, TypedDict
+
+from pypika_tortoise import SqlContext, Table
+from pypika_tortoise.enums import DatePart, Matching, SqlTypes
+from pypika_tortoise.functions import Cast, Extract, Upper
+from pypika_tortoise.terms import (
+    BasicCriterion,
+    Criterion,
+    Equality,
+    Term,
+    ValueWrapper,
+)
 from typing_extensions import NotRequired
 
 from tortoise.fields import Field, JSONField
@@ -27,22 +27,17 @@ if TYPE_CHECKING:  # pragma: nocoverage
 ##############################################################################
 
 
-class Like(BasicCriterion):  # type: ignore
+class Like(BasicCriterion):
     def __init__(self, left, right, alias=None, escape=" ESCAPE '\\'") -> None:
         """
         A Like that supports an ESCAPE clause
         """
-        super().__init__(" LIKE ", left, right, alias=alias)
+        super().__init__(Matching.like, left, right, alias=alias)
         self.escape = escape
 
-    def get_sql(self, quote_char='"', with_alias=False, **kwargs):
-        sql = "{left}{comparator}{right}{escape}".format(
-            comparator=self.comparator,
-            left=self.left.get_sql(quote_char=quote_char, **kwargs),
-            right=self.right.get_sql(quote_char=quote_char, **kwargs),
-            escape=self.escape,
-        )
-        if with_alias and self.alias:  # pragma: nocoverage
+    def get_sql(self, ctx: SqlContext):
+        sql = super().get_sql(ctx.copy(with_alias=False)) + str(self.escape)
+        if ctx.with_alias and self.alias:  # pragma: nocoverage
             return '{sql} "{alias}"'.format(sql=sql, alias=self.alias)
         return sql
 
@@ -77,7 +72,7 @@ def string_encoder(value: Any, instance: "Model", field: Field) -> str:
     return str(value)
 
 
-def json_encoder(value: Any, instance: "Model", field: Field) -> Dict:
+def json_encoder(value: Any, instance: "Model", field: Field) -> dict:
     return value
 
 
@@ -91,17 +86,25 @@ def is_in(field: Term, value: Any) -> Criterion:
     if value:
         return field.isin(value)
     # SQL has no False, so we return 1=0
-    return BasicCriterion(Equality.eq, ValueWrapper(1), ValueWrapper(0))
+    return BasicCriterion(
+        Equality.eq,
+        ValueWrapper(1, allow_parametrize=False),
+        ValueWrapper(0, allow_parametrize=False),
+    )
 
 
 def not_in(field: Term, value: Any) -> Criterion:
     if value:
         return field.notin(value) | field.isnull()
     # SQL has no True, so we return 1=1
-    return BasicCriterion(Equality.eq, ValueWrapper(1), ValueWrapper(1))
+    return BasicCriterion(
+        Equality.eq,
+        ValueWrapper(1, allow_parametrize=False),
+        ValueWrapper(1, allow_parametrize=False),
+    )
 
 
-def between_and(field: Term, value: Tuple[Any, Any]) -> Criterion:
+def between_and(field: Term, value: tuple[Any, Any]) -> Criterion:
     return field.between(value[0], value[1])
 
 
@@ -125,15 +128,22 @@ def contains(field: Term, value: str) -> Criterion:
     return Like(Cast(field, SqlTypes.VARCHAR), field.wrap_constant(f"%{escape_like(value)}%"))
 
 
-def search(field: Term, value: str):
+def search(field: Term, value: str) -> Any:
     # will be override in each executor
     pass
 
 
-def posix_regex(field: Term, value: str):
+def posix_regex(field: Term, value: str) -> Any:
     # Will be overridden in each executor
     raise NotImplementedError(
-        "The postgres_posix_regex filter operator is not supported by your database backend"
+        "The posix_regex filter operator is not supported by your database backend"
+    )
+
+
+def insensitive_posix_regex(field: Term, value: str):
+    # Will be overridden in each executor
+    raise NotImplementedError(
+        "The insensitive_posix_regex filter operator is not supported by your database backend"
     )
 
 
@@ -203,17 +213,17 @@ def extract_microsecond_equal(field: Term, value: int) -> Criterion:
     return Extract(DatePart.microsecond, field).eq(value)
 
 
-def json_contains(field: Term, value: str) -> Criterion:
+def json_contains(field: Term, value: str) -> Criterion:  # type:ignore[empty-body]
     # will be override in each executor
     pass
 
 
-def json_contained_by(field: Term, value: str) -> Criterion:
+def json_contained_by(field: Term, value: str) -> Criterion:  # type:ignore[empty-body]
     # will be override in each executor
     pass
 
 
-def json_filter(field: Term, value: Dict) -> Criterion:
+def json_filter(field: Term, value: dict) -> Criterion:  # type:ignore[empty-body]
     # will be override in each executor
     pass
 
@@ -232,7 +242,7 @@ class FilterInfoDict(TypedDict):
     source_field: NotRequired[str]
 
 
-def get_m2m_filters(field_name: str, field: ManyToManyFieldInstance) -> Dict[str, FilterInfoDict]:
+def get_m2m_filters(field_name: str, field: ManyToManyFieldInstance) -> dict[str, FilterInfoDict]:
     target_table_pk = field.related_model._meta.pk
     return {
         field_name: {
@@ -268,7 +278,7 @@ def get_m2m_filters(field_name: str, field: ManyToManyFieldInstance) -> Dict[str
 
 def get_backward_fk_filters(
     field_name: str, field: BackwardFKRelation
-) -> Dict[str, FilterInfoDict]:
+) -> dict[str, FilterInfoDict]:
     target_table_pk = field.related_model._meta.pk
     return {
         field_name: {
@@ -314,7 +324,7 @@ def get_backward_fk_filters(
     }
 
 
-def get_json_filter(field_name: str, source_field: str) -> Dict[str, FilterInfoDict]:
+def get_json_filter(field_name: str, source_field: str) -> dict[str, FilterInfoDict]:
     actual_field_name = field_name
     return {
         field_name: {
@@ -358,9 +368,22 @@ def get_json_filter(field_name: str, source_field: str) -> Dict[str, FilterInfoD
     }
 
 
+def get_json_filter_operator(
+    value: dict[str, Any], operator_keywords: dict[str, Callable[..., Criterion]]
+) -> tuple[list[str | int], Any, Callable[..., Criterion]]:
+    ((key, filter_value),) = value.items()
+    key_parts = [int(item) if item.isdigit() else str(item) for item in key.split("__")]
+    operator_ = (
+        operator_keywords[str(key_parts.pop(-1))]
+        if key_parts[-1] in operator_keywords
+        else operator.eq
+    )
+    return key_parts, filter_value, operator_
+
+
 def get_filters_for_field(
     field_name: str, field: Optional[Field], source_field: str
-) -> Dict[str, FilterInfoDict]:
+) -> dict[str, FilterInfoDict]:
     if isinstance(field, ManyToManyFieldInstance):
         return get_m2m_filters(field_name, field)
     if isinstance(field, BackwardFKRelation):
@@ -484,6 +507,12 @@ def get_filters_for_field(
             "field": actual_field_name,
             "source_field": source_field,
             "operator": posix_regex,
+            "value_encoder": string_encoder,
+        },
+        f"{field_name}__iposix_regex": {
+            "field": actual_field_name,
+            "source_field": source_field,
+            "operator": insensitive_posix_regex,
             "value_encoder": string_encoder,
         },
         f"{field_name}__year": {

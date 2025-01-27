@@ -2,14 +2,15 @@ import datetime
 import functools
 import json
 import warnings
+from collections.abc import Callable
 from decimal import Decimal
 from enum import Enum, IntEnum
-from typing import TYPE_CHECKING, Any, Callable, Optional, Type, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Optional, Type, TypeVar, Union
 from uuid import UUID, uuid4
 
-from pypika import functions
-from pypika.enums import SqlTypes
-from pypika.terms import Term
+from pypika_tortoise import functions
+from pypika_tortoise.enums import SqlTypes
+from pypika_tortoise.terms import Term
 
 from tortoise import timezone
 from tortoise.exceptions import ConfigurationError, FieldError
@@ -45,6 +46,8 @@ __all__ = (
     "TimeDeltaField",
     "UUIDField",
 )
+
+T = TypeVar("T")
 
 # Doing this we can replace json dumps/loads with different implementations
 JsonDumpsFunc = Callable[[Any], str]
@@ -286,7 +289,6 @@ class DecimalField(Field[Decimal], Decimal):
     def to_python_value(self, value: Any) -> Optional[Decimal]:
         if value is not None:
             value = Decimal(value).quantize(self.quant).normalize()
-        self.validate(value)
         return value
 
     @property
@@ -406,7 +408,6 @@ class DateField(Field[datetime.date], datetime.date):
     def to_python_value(self, value: Any) -> Optional[datetime.date]:
         if value is not None and not isinstance(value, datetime.date):
             value = parse_datetime(value).date()
-        self.validate(value)
         return value
 
     def to_db_value(
@@ -493,8 +494,6 @@ class TimeDeltaField(Field[datetime.timedelta]):
         SQL_TYPE = "NUMBER(19)"
 
     def to_python_value(self, value: Any) -> Optional[datetime.timedelta]:
-        self.validate(value)
-
         if value is None or isinstance(value, datetime.timedelta):
             return value
         return datetime.timedelta(microseconds=value)
@@ -523,11 +522,13 @@ class FloatField(Field[float], float):
         SQL_TYPE = "DOUBLE"
 
 
-class JSONField(Field[Union[dict, list]], dict, list):  # type: ignore
+class JSONField(Field[T], dict, list):  # type: ignore
     """
     JSON field.
 
     This field can store dictionaries or lists of any JSON-compliant structure.
+
+    You can use generics to make static checking more friendly. Example: ``JSONField[dict[str, str]]``
 
     You can specify your own custom JSON encoder/decoder, leaving at the default should work well.
     If you have ``orjson`` installed, we default to using that,
@@ -537,6 +538,11 @@ class JSONField(Field[Union[dict, list]], dict, list):  # type: ignore
         The custom JSON encoder.
     ``decoder``:
         The custom JSON decoder.
+
+    If you want to use Pydantic model as the field type for generating a better OpenAPI documentation, you can use ``field_type`` to specify the type of the field.
+
+    ``field_type``:
+        The Pydantic model class.
 
     """
 
@@ -561,35 +567,58 @@ class JSONField(Field[Union[dict, list]], dict, list):  # type: ignore
         super().__init__(**kwargs)
         self.encoder = encoder
         self.decoder = decoder
+        if field_type := kwargs.get("field_type", None):
+            self.field_type = field_type
 
     def to_db_value(
-        self, value: Optional[Union[dict, list, str, bytes]], instance: "Union[Type[Model], Model]"
+        self,
+        value: Optional[Union[T, dict, list, str, bytes]],
+        instance: "Union[Type[Model], Model]",
     ) -> Optional[str]:
         self.validate(value)
-        if value is not None:
-            if isinstance(value, (str, bytes)):
-                try:
-                    self.decoder(value)
-                except Exception:
-                    raise FieldError(f"Value {value!r} is invalid json value.")
-                if isinstance(value, bytes):
-                    value = value.decode()
-            else:
-                value = self.encoder(value)
-        return value
+        if value is None:
+            return None
 
-    def to_python_value(
-        self, value: Optional[Union[str, bytes, dict, list]]
-    ) -> Optional[Union[dict, list]]:
         if isinstance(value, (str, bytes)):
             try:
-                return self.decoder(value)
+                self.decoder(value)
+            except Exception:
+                raise FieldError(f"Value {value!r} is invalid json value.")
+            if isinstance(value, bytes):
+                return value.decode()
+            return value
+
+        try:
+            from pydantic import BaseModel
+
+            if isinstance(value, BaseModel):
+                value = value.model_dump()
+        except ImportError:
+            pass
+
+        return self.encoder(value)
+
+    def to_python_value(
+        self, value: Optional[Union[T, str, bytes, dict, list]]
+    ) -> Optional[Union[T, dict, list]]:
+        if isinstance(value, (str, bytes)):
+            try:
+                data = self.decoder(value)
+
+                try:
+                    from pydantic._internal._model_construction import ModelMetaclass
+
+                    if isinstance(self.field_type, ModelMetaclass) and not isinstance(data, list):
+                        return self.field_type(**data)
+                except ImportError:
+                    pass
+
+                return data
             except Exception:
                 raise FieldError(
                     f"Value {value if isinstance(value, str) else value.decode()} is invalid json value."
                 )
 
-        self.validate(value)
         return value
 
 
@@ -671,7 +700,6 @@ class IntEnumFieldInstance(SmallIntField):
 
     def to_python_value(self, value: Union[int, None]) -> Union[IntEnum, None]:
         value = self.enum_type(value) if value is not None else None
-        self.validate(value)
         return value
 
     def to_db_value(
@@ -736,8 +764,6 @@ class CharEnumFieldInstance(CharField):
         self.enum_type = enum_type
 
     def to_python_value(self, value: Union[str, None]) -> Union[Enum, None]:
-        self.validate(value)
-
         return self.enum_type(value) if value is not None else None
 
     def to_db_value(

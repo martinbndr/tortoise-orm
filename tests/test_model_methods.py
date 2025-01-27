@@ -210,6 +210,18 @@ class TestModelMethods(test.TestCase):
         mdl = await self.cls.first()
         self.assertEqual(self.mdl.id, mdl.id)
 
+    async def test_last(self):
+        mdl = await self.cls.last()
+        self.assertEqual(self.mdl.id, mdl.id)
+
+    async def test_latest(self):
+        mdl = await self.cls.latest("name")
+        self.assertEqual(self.mdl.id, mdl.id)
+
+    async def test_earliest(self):
+        mdl = await self.cls.earliest("name")
+        self.assertEqual(self.mdl.id, mdl.id)
+
     async def test_filter(self):
         mdl = await self.cls.filter(name="Test").first()
         self.assertEqual(self.mdl.id, mdl.id)
@@ -284,14 +296,14 @@ class TestModelMethods(test.TestCase):
 
     async def test_index_badval(self):
         with self.assertRaises(ObjectDoesNotExistError) as cm:
-            await self.cls[100000]
+            await self.cls[32767]
         the_exception = cm.exception
         # For compatibility reasons this should be an instance of KeyError
         self.assertIsInstance(the_exception, KeyError)
         self.assertIs(the_exception.model, self.cls)
         self.assertEqual(the_exception.pk_name, "id")
-        self.assertEqual(the_exception.pk_val, 100000)
-        self.assertEqual(str(the_exception), f"{self.cls.__name__} has no object with id=100000")
+        self.assertEqual(the_exception.pk_val, 32767)
+        self.assertEqual(str(the_exception), f"{self.cls.__name__} has no object with id=32767")
 
     async def test_index_badtype(self):
         with self.assertRaises(ObjectDoesNotExistError) as cm:

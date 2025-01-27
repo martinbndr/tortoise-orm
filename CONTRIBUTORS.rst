@@ -60,6 +60,10 @@ Contributors
 * Abdeldjalil Hezouat ``@Abdeldjalil-H``
 * Andrea Magistà ``@vlakius``
 * Daniel Szucs ``@Quasar6X``
+* Rui Catarino ``@ruitcatarino``
+* Lance Moe ``@lancemoe``
+* Markus Beckschulte ``@markus-96``
+* Frederic Aoustin ``@fraoustin``
 
 Special Thanks
 ==============

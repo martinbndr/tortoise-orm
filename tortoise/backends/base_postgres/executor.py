@@ -1,9 +1,9 @@
 import uuid
-from typing import Optional, Sequence
+from collections.abc import Sequence
+from typing import Optional, cast
 
-from pypika import Parameter
-from pypika.dialects import PostgreSQLQueryBuilder
-from pypika.terms import Term
+from pypika_tortoise.dialects import PostgreSQLQueryBuilder
+from pypika_tortoise.terms import Term
 
 from tortoise import Model
 from tortoise.backends.base.executor import BaseExecutor
@@ -12,9 +12,13 @@ from tortoise.contrib.postgres.json_functions import (
     postgres_json_contains,
     postgres_json_filter,
 )
-from tortoise.contrib.postgres.regex import postgres_posix_regex
+from tortoise.contrib.postgres.regex import (
+    postgres_insensitive_posix_regex,
+    postgres_posix_regex,
+)
 from tortoise.contrib.postgres.search import SearchCriterion
 from tortoise.filters import (
+    insensitive_posix_regex,
     json_contained_by,
     json_contains,
     json_filter,
@@ -23,7 +27,7 @@ from tortoise.filters import (
 )
 
 
-def postgres_search(field: Term, value: Term):
+def postgres_search(field: Term, value: Term) -> SearchCriterion:
     return SearchCriterion(field, expr=value)
 
 
@@ -36,23 +40,16 @@ class BasePostgresExecutor(BaseExecutor):
         json_contained_by: postgres_json_contained_by,
         json_filter: postgres_json_filter,
         posix_regex: postgres_posix_regex,
+        insensitive_posix_regex: postgres_insensitive_posix_regex,
     }
-
-    def parameter(self, pos: int) -> Parameter:
-        return Parameter("$%d" % (pos + 1,))
 
     def _prepare_insert_statement(
         self, columns: Sequence[str], has_generated: bool = True, ignore_conflicts: bool = False
     ) -> PostgreSQLQueryBuilder:
-        query = (
-            self.db.query_class.into(self.model._meta.basetable)
-            .columns(*columns)
-            .insert(*[self.parameter(i) for i in range(len(columns))])
-        )
-        if has_generated:
-            generated_fields = self.model._meta.generated_db_fields
-            if generated_fields:
-                query = query.returning(*generated_fields)
+        builder = cast(PostgreSQLQueryBuilder, self.db.query_class.into(self.model._meta.basetable))
+        query = builder.columns(*columns).insert(*[self.parameter(i) for i in range(len(columns))])
+        if has_generated and (generated_fields := self.model._meta.generated_db_fields):
+            query = query.returning(*generated_fields)
         if ignore_conflicts:
             query = query.on_conflict().do_nothing()
         return query

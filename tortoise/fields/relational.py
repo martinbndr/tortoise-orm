@@ -1,20 +1,7 @@
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    AsyncGenerator,
-    Generator,
-    Generic,
-    Iterator,
-    List,
-    Optional,
-    Tuple,
-    Type,
-    TypeVar,
-    Union,
-    overload,
-)
+from collections.abc import AsyncGenerator, Generator, Iterator
+from typing import TYPE_CHECKING, Any, Generic, Optional, Type, TypeVar, Union, overload
 
-from pypika import Table
+from pypika_tortoise import Table
 from typing_extensions import Literal
 
 from tortoise.exceptions import ConfigurationError, NoValuesFetched, OperationalError
@@ -59,7 +46,7 @@ class ReverseRelation(Generic[MODEL]):
         self.from_field = from_field
         self._fetched = False
         self._custom_query = False
-        self.related_objects: List[MODEL] = []
+        self.related_objects: list[MODEL] = []
 
     @property
     def _query(self) -> "QuerySet[MODEL]":
@@ -91,7 +78,7 @@ class ReverseRelation(Generic[MODEL]):
         self._raise_if_not_fetched()
         return self.related_objects[item]
 
-    def __await__(self) -> Generator[Any, None, List[MODEL]]:
+    def __await__(self) -> Generator[Any, None, list[MODEL]]:
         return self._query.__await__()
 
     async def __aiter__(self) -> AsyncGenerator[Any, MODEL]:
@@ -130,7 +117,7 @@ class ReverseRelation(Generic[MODEL]):
         """
         return self._query.offset(offset)
 
-    def _set_result_for_query(self, sequence: List[MODEL], attr: Optional[str] = None) -> None:
+    def _set_result_for_query(self, sequence: list[MODEL], attr: Optional[str] = None) -> None:
         self._fetched = True
         self.related_objects = sequence
         if attr:
@@ -184,7 +171,9 @@ class ManyToManyRelation(ReverseRelation[MODEL]):
         criterion = forward_field == pks_f[0] if len(pks_f) == 1 else forward_field.isin(pks_f)
         select_query = select_query.where(criterion)
 
-        _, already_existing_relations_raw = await db.execute_query(str(select_query))
+        _, already_existing_relations_raw = await db.execute_query(
+            *select_query.get_parameterized_sql()
+        )
         already_existing_forward_pks = {
             related_pk_formatting_func(r[forward_key], self.instance)
             for r in already_existing_relations_raw
@@ -194,7 +183,7 @@ class ManyToManyRelation(ReverseRelation[MODEL]):
             query = db.query_class.into(through_table).columns(forward_field, backward_field)
             for pk_f in pks_f_to_insert:
                 query = query.insert(pk_f, pk_b)
-            await db.execute_query(str(query))
+            await db.execute_query(*query.get_parameterized_sql())
 
     async def clear(self, using_db: "Optional[BaseDBAsyncClient]" = None) -> None:
         """
@@ -216,7 +205,7 @@ class ManyToManyRelation(ReverseRelation[MODEL]):
 
     async def _remove_or_clear(
         self,
-        instances: Optional[Tuple[MODEL, ...]] = None,
+        instances: Optional[tuple[MODEL, ...]] = None,
         using_db: "Optional[BaseDBAsyncClient]" = None,
     ) -> None:
         db = using_db or self.remote_model._meta.db
@@ -237,7 +226,7 @@ class ManyToManyRelation(ReverseRelation[MODEL]):
                     [related_pk_formatting_func(i.pk, i) for i in instances]
                 )
         query = db.query_class.from_(through_table).where(condition).delete()
-        await db.execute_query(str(query))
+        await db.execute_query(*query.get_parameterized_sql())
 
 
 class RelationalField(Field[MODEL]):

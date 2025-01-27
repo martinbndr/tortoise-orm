@@ -1,5 +1,6 @@
 import asyncio
-from typing import Any, Callable, List, Optional, Tuple, TypeVar, Union
+from collections.abc import Callable
+from typing import Any, Optional, TypeVar
 
 import asyncpg
 from asyncpg.transaction import Transaction
@@ -7,10 +8,9 @@ from asyncpg.transaction import Transaction
 from tortoise.backends.asyncpg.executor import AsyncpgExecutor
 from tortoise.backends.asyncpg.schema_generator import AsyncpgSchemaGenerator
 from tortoise.backends.base.client import (
-    BaseTransactionWrapper,
     ConnectionWrapper,
-    NestedTransactionPooledContext,
-    PoolConnectionWrapper,
+    NestedTransactionContext,
+    TransactionalDBClient,
     TransactionContext,
     TransactionContextPooled,
 )
@@ -99,11 +99,8 @@ class AsyncpgDBClient(BasePostgresClient):
             pass
         await self.close()
 
-    def acquire_connection(self) -> Union["PoolConnectionWrapper", "ConnectionWrapper"]:
-        return PoolConnectionWrapper(self)
-
     def _in_transaction(self) -> "TransactionContext":
-        return TransactionContextPooled(TransactionWrapper(self))
+        return TransactionContextPooled(TransactionWrapper(self), self._pool_init_lock)
 
     @translate_exceptions
     async def execute_insert(self, query: str, values: list) -> Optional[asyncpg.Record]:
@@ -130,7 +127,7 @@ class AsyncpgDBClient(BasePostgresClient):
     @translate_exceptions
     async def execute_query(
         self, query: str, values: Optional[list] = None
-    ) -> Tuple[int, List[dict]]:
+    ) -> tuple[int, list[dict]]:
         async with self.acquire_connection() as connection:
             self.log.debug("%s: %s", query, values)
             if values:
@@ -149,7 +146,7 @@ class AsyncpgDBClient(BasePostgresClient):
             return len(rows), rows
 
     @translate_exceptions
-    async def execute_query_dict(self, query: str, values: Optional[list] = None) -> List[dict]:
+    async def execute_query_dict(self, query: str, values: Optional[list] = None) -> list[dict]:
         async with self.acquire_connection() as connection:
             self.log.debug("%s: %s", query, values)
             if values:
@@ -157,19 +154,25 @@ class AsyncpgDBClient(BasePostgresClient):
             return list(map(dict, await connection.fetch(query)))
 
 
-class TransactionWrapper(AsyncpgDBClient, BaseTransactionWrapper):
+class TransactionWrapper(AsyncpgDBClient, TransactionalDBClient):
+    """A transactional connection wrapper for psycopg.
+
+    asyncpg implements nested transactions (savepoints) natively, so we don't need to.
+    """
+
     def __init__(self, connection: AsyncpgDBClient) -> None:
         self._connection: asyncpg.Connection = connection._connection
         self._lock = asyncio.Lock()
-        self._trxlock = asyncio.Lock()
         self.log = connection.log
         self.connection_name = connection.connection_name
-        self.transaction: Transaction = None
+        self.transaction: Optional[Transaction] = None
         self._finalized = False
         self._parent: AsyncpgDBClient = connection
 
     def _in_transaction(self) -> "TransactionContext":
-        return NestedTransactionPooledContext(self)
+        # since we need to store the transaction object for each transaction block,
+        # we need to wrap the connection with its own TransactionWrapper
+        return NestedTransactionContext(TransactionWrapper(self))
 
     def acquire_connection(self) -> ConnectionWrapper[asyncpg.Connection]:
         return ConnectionWrapper(self._lock, self)
@@ -182,18 +185,31 @@ class TransactionWrapper(AsyncpgDBClient, BaseTransactionWrapper):
             await connection.executemany(query, values)
 
     @translate_exceptions
-    async def start(self) -> None:
+    async def begin(self) -> None:
         self.transaction = self._connection.transaction()
         await self.transaction.start()
 
+    async def savepoint(self) -> None:
+        return await self.begin()
+
     async def commit(self) -> None:
+        if not self.transaction:
+            raise TransactionManagementError("Transaction is in invalid state")
         if self._finalized:
             raise TransactionManagementError("Transaction already finalised")
         await self.transaction.commit()
         self._finalized = True
 
+    async def release_savepoint(self) -> None:
+        return await self.commit()
+
     async def rollback(self) -> None:
+        if not self.transaction:
+            raise TransactionManagementError("Transaction is in invalid state")
         if self._finalized:
             raise TransactionManagementError("Transaction already finalised")
         await self.transaction.rollback()
         self._finalized = True
+
+    async def savepoint_rollback(self) -> None:
+        await self.rollback()

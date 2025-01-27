@@ -29,7 +29,7 @@ You can find the docs at `Documentation <https://tortoise.github.io>`_
    Tortoise ORM is a young project and breaking changes are to be expected.
    We keep a `Changelog <https://tortoise.github.io/CHANGELOG.html>`_ and it will have possible breakage clearly documented.
 
-Tortoise ORM is supported on CPython >= 3.8 for SQLite, MySQL and PostgreSQL and Microsoft SQL Server and Oracle.
+Tortoise ORM is supported on CPython >= 3.9 for SQLite, MySQL and PostgreSQL and Microsoft SQL Server and Oracle.
 
 Why was Tortoise ORM built?
 ---------------------------
@@ -152,7 +152,7 @@ Tortoise ORM currently supports the following databases:
 
 * `SQLite` (requires ``aiosqlite``)
 * `PostgreSQL` (requires ``asyncpg``)
-* `MySQL` (requires ``asyncmy``)
+* `MySQL` (requires ``asyncmy`` or ``aiomysql``)
 * `Microsoft SQL Server`/`Oracle` (requires ``asyncodbc``)
 
 ``generate_schema`` generates the schema on an empty database. Tortoise generates schemas in safe mode by default which
