@@ -9,13 +9,38 @@ Changelog
 0.24
 ====
 
+0.24.2
+------
+
+Fixed
+^^^^^
+- Fix model with multi m2m fields generates wrong references name (#1897)
+- Fix using reserved words in order_by (#1900)
+- Fix installing tortoise-orm with poetry 2 (#1885)
+
+Changed
+^^^^^^^
+- Use 'unique' instead of 'create_unique_index' for m2m field (#1903)
+
+0.24.1
+------
+Added
+^^^^^
+- Implement __contains, __contained_by, __overlap and __len for ArrayField (#1877)
+
+Fixed
+^^^^^
+- Fix update pk field raises unfriendly error (#1873)
+- Using `.distinct()` with an annotation and `.order_by()` produces invalid SQL for PostgreSQL (#1886)
+
+
 0.24.0
 ------
 Fixed
 ^^^^^
+- `_get_dialects`: support properties (#1859)
 - Rename pypika to pypika_tortoise for fixing package name conflict (#1829)
 - Concurrent connection pool initialization (#1825)
-- `_get_dialects`: support properties (#1859)
 
 Changed
 ^^^^^^^
